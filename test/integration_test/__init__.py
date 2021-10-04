@@ -37,6 +37,7 @@ from tflite2xcore.model_generation.converters import (
     TFLiteFloatConverter,
     TFLiteQuantConverter,
     XCoreConverter,
+    OperatorSplittingConverter,
 )
 from tflite2xcore.model_generation.data_factories import (
     TensorDataFactory,
@@ -291,7 +292,98 @@ class BinarizedTestRunner(IntegrationTestRunner):
             }
         )
 
+class OperatorSplittingTestRunner(IntegrationTestRunner):
+    class OutputData(NamedTuple):
+        xcore: np.ndarray
+        operator_splitting: np.ndarray
 
+    outputs: "OperatorSplittingTestRunner.OutputData"
+    _xcore_evaluation_data: np.ndarray
+    
+    def __init__(
+        self,
+        generator: Type["IntegrationTestModelGenerator"],
+        *,
+        use_device: bool = False,
+        experimental_xformer2: bool = False,
+        only_experimental_xformer2: bool = False,
+    ) -> None:
+        super().__init__(generator, use_device=use_device,experimental_xformer2=experimental_xformer2,only_experimental_xformer2=only_experimental_xformer2)
+
+        # floating point reference
+        self._reference_float_converter = TFLiteFloatConverter(
+            self, self.get_built_model
+        )
+        self.register_converter(self._reference_float_converter)
+
+        self._reference_float_evaluator = TFLiteEvaluator(
+            self,
+            self.get_representative_data,
+            self._reference_float_converter.get_converted_model,
+        )
+        self.register_evaluator(self._reference_float_evaluator)
+
+        # quantized reference
+        self._reference_quant_converter = TFLiteQuantConverter(
+            self, self.get_built_model, self.get_representative_data
+        )
+        self.register_converter(self._reference_quant_converter)
+
+        self._reference_quant_evaluator = TFLiteQuantEvaluator(
+            self,
+            self.get_representative_data,
+            self._reference_quant_converter.get_converted_model,
+        )
+        self.register_evaluator(self._reference_quant_evaluator)
+    
+        self._operator_splitting_converter = OperatorSplittingConverter(self, self.get_xcore_reference_model)
+        self.register_converter(self._operator_splitting_converter)
+
+        self._operator_splitting_evaluator = XCoreEvaluator(
+            self, 
+            self.get_xcore_evaluation_data,
+            self._operator_splitting_converter.get_converted_model,
+            use_device=self._use_device,
+        )
+        self.register_evaluator(self._operator_splitting_evaluator)
+
+    def get_xcore_reference_model(self) -> TFLiteModel:
+        return self._reference_quant_converter.get_converted_model()
+
+    def get_xcore_evaluation_data(self) -> Union[np.ndarray, tf.Tensor]:
+        return self._reference_quant_evaluator.input_data
+
+    def run(self) -> None:
+        """Defines how a DefaultIntegrationTestRunner should be run.
+
+        Most integration tests require self.outputs to be set.
+        """
+        super().run()
+        self._reference_float_converter.convert()
+        self._reference_quant_converter.convert()
+
+        self._reference_quant_evaluator.evaluate()
+        self._reference_float_evaluator.evaluate()
+
+        self._operator_splitting_converter.convert()
+        self._operator_splitting_evaluator.evaluate()
+        
+        self.rerun_post_cache()
+
+    def rerun_post_cache(self) -> None:
+        super().rerun_post_cache()
+
+        self.outputs = self.OutputData(
+            self._xcore_evaluator.output_data,
+            self._operator_splitting_evaluator.output_data,
+        )
+        self.converted_models.update(
+            {
+                "reference_quant": self._reference_quant_converter._model,
+                "xcore": self._xcore_converter._model,
+                "operator_splitting": self._operator_splitting_converter._model,
+            }
+        )
 #  ----------------------------------------------------------------------------
 #                                   GENERATORS
 #  ----------------------------------------------------------------------------
@@ -440,3 +532,27 @@ def test_idempotence(xcore_model: XCOREModel, run: IntegrationTestRunner) -> Non
     run._identity_converter.convert()
     identical_model = XCOREModel.deserialize(run._identity_converter._model)
     assert xcore_model.is_equal(identical_model)
+
+def test_output_operator_splitting(
+    operator_splitting_compared_outputs: BatchedArrayComparison, request: _pytest.fixtures.SubRequest
+) -> None:
+    verbose = request.config.getoption("verbose") > 0
+
+    if operator_splitting_compared_outputs.failures:
+        msg = "The following examples have failed elements:"
+        msg += "".join(
+            f"\n{request.node.fspath}::{request.node.name} Example {j}"
+            + (
+                "".join(
+                    f"\nidx={e.idx}: diff={e.diff}, "
+                    f"expected={e.expected}, predicted={e.predicted}"
+                    for e in elements
+                )
+                if verbose
+                else ""
+            )
+            for j, elements in operator_splitting_compared_outputs.failures.items()
+        )
+        if not verbose:
+            msg += "\nSet verbosity > 0 for more details."
+        pytest.fail(msg, pytrace=False)

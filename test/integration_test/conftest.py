@@ -19,6 +19,7 @@ from . import (
     DefaultIntegrationTestRunner,
     _compare_batched_arrays,
     BatchedArrayComparison,
+    OperatorSplittingTestRunner,
 )
 
 
@@ -249,6 +250,14 @@ def bitpacked_outputs() -> bool:
 def implicit_tolerance_margin() -> float:
     return 0.05
 
+@pytest.fixture
+def operator_splitting_compared_outputs(
+    run: OperatorSplittingTestRunner,
+    abs_output_tolerance: Optional[Union[int, float]],
+) -> BatchedArrayComparison:
+    return _compare_batched_arrays(
+        run.outputs.operator_splitting, run.outputs.xcore, abs_output_tolerance,
+    )
 
 @pytest.fixture
 def compared_outputs(

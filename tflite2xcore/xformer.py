@@ -70,6 +70,12 @@ if __name__ == "__main__":
         default=False,
         help="Use only MLIR-based xformer 2.0. Experimental.",
     )
+    parser.add_argument(
+        "--operator-splitting",
+        action="store_true",
+        default=False,
+        help="Splits operator(s) over smaller input(s). Experimental.",
+    )
 
     args = parser.parse_args()
 
@@ -88,6 +94,7 @@ if __name__ == "__main__":
         external_memory=args.ext_mem,
         experimental_xformer2=args.experimental_xformer2,
         only_experimental_xformer2=args.only_experimental_xformer2
+        operator_splitting=args.operator_splitting
     )
 
     print(f"Conversion successful, output: {tflite_output_path}")

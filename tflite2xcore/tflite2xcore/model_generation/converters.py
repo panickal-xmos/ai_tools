@@ -137,6 +137,21 @@ class XCoreConverter(Converter):
             )
             self._model = model.serialize()
 
+class OperatorSplittingConverter(Converter):
+    """ Converts network to OperatorSplitting network
+    then converts to xcore.ai-optimized TFLite model. """
+
+    def __init__(self, runner: Runner, input_model_hook: Hook[TFLiteModel]) -> None:
+        super().__init__(runner, input_model_hook)
+
+    def _set_config(self, cfg: Configuration) -> None:
+        if "num_threads" not in self._config:
+            self._config["num_threads"] = cfg.pop("num_threads", 1)
+
+    def convert(self) -> None:
+        model = XCOREModel.deserialize(self._input_model_hook())
+        optimize_for_xcore(model, num_threads=self._config["num_threads"], operator_splitting=True)
+        self._model = model.serialize()
 
 class LarqConverter(KerasModelConverter):
     """ Converts a Larq model to a TFLite model. """

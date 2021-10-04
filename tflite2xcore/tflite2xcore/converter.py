@@ -276,6 +276,7 @@ def optimize_for_xcore(
     remove_float_interface: bool = False,
     external_memory: bool = False,
     experimental_xformer2: bool = False,
+    operator_splitting: bool = False,
 ) -> XCOREModel:
     num_threads = num_threads or 1
     intermediates_path = Path(intermediates_path) if intermediates_path else None

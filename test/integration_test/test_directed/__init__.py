@@ -6,4 +6,5 @@ from .. import (
     IntegrationTestModelGenerator,
     test_output,
     test_idempotence,
+    test_output_operator_splitting
 )
