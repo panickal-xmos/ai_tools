@@ -235,6 +235,9 @@ def xcore_model(run: IntegrationTestRunner) -> XCOREModel:
 def reference_model(run: DefaultIntegrationTestRunner) -> XCOREModel:
     return XCOREModel.deserialize(run.get_xcore_reference_model())
 
+@pytest.fixture
+def operator_splitting_model(run: OperatorSplittingTestRunner) -> XCOREModel:
+    return XCOREModel.deserialize(run._operator_splitting_converter._model)
 
 @pytest.fixture
 def abs_output_tolerance() -> int:

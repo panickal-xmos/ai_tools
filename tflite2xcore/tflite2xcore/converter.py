@@ -30,6 +30,16 @@ class CleanupManager(PassManager):
         self.register_pass(passes.EliminateDeadTensorsPass())
         self.register_pass(passes.EliminateDeadBuffersPass())
 
+class OperatorSplittingManager(PassManager):
+    def __init__(
+        self,
+        model: Optional[XCOREModel] = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(model, **kwargs)
+        
+        self.register_pass(passes.OperatorSplittingPass())
+        self.register_pass(passes.OperatorSplittingCleanupPass())
 
 class BasicCanonicalizationManager(PassManager):
     def __init__(
@@ -283,6 +293,9 @@ def optimize_for_xcore(
 
     pass_mgr = PassManager(model, keep_intermediates=bool(intermediates_path))
 
+    if operator_splitting:
+        pass_mgr.register_passes(OperatorSplittingManager())   
+        
     # canonicalization
     pass_mgr.register_passes(
         BasicCanonicalizationManager(remove_float_interface=remove_float_interface)

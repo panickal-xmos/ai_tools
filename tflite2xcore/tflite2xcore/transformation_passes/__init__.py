@@ -117,3 +117,8 @@ from .lce_passes import (
 from .warning_passes import FloatingPointWarningPass
 
 from .add_passes import ReplaceAddPass
+
+from .operator_splitting_passes import (
+    OperatorSplittingPass,
+    OperatorSplittingCleanupPass,
+)
