@@ -43,10 +43,6 @@ from tflite2xcore.model_generation.data_factories import (
     TensorDataFactory,
     InputInitializerDataFactory,
 )
-from xcore_interpreters import (
-    ModelSizeError,
-    ArenaSizeError,
-)
 
 
 #  ----------------------------------------------------------------------------
@@ -92,6 +88,7 @@ class IntegrationTestRunner(Runner):
             self,
             self.get_xcore_evaluation_data,
             self._xcore_converter.get_converted_model,
+            self._xcore_converter.get_converted_model_params,
             use_device=self._use_device,
         )
         self.register_evaluator(self._xcore_evaluator)
@@ -166,6 +163,7 @@ class DefaultIntegrationTestRunner(IntegrationTestRunner):
             self,
             self.get_representative_data,
             self._reference_float_converter.get_converted_model,
+            None,
         )
         self.register_evaluator(self._reference_float_evaluator)
 
@@ -179,6 +177,7 @@ class DefaultIntegrationTestRunner(IntegrationTestRunner):
             self,
             self.get_representative_data,
             self._reference_quant_converter.get_converted_model,
+            None,
         )
         self.register_evaluator(self._reference_quant_evaluator)
 

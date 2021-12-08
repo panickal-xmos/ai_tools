@@ -72,9 +72,15 @@ class XC_Op<string mnemonic, list<OpTrait> traits = []>
 def XC_Conv2D_ValidDirect : StrEnumAttrCase<"ValidDirect">;
 def XC_Conv2D_ValidIndirect : StrEnumAttrCase<"ValidIndirect">;
 def XC_Conv2D_PaddedIndirect : StrEnumAttrCase<"PaddedIndirect">;
+def XC_DW_Conv2D_ValidDirect : StrEnumAttrCase<"DepthwiseValidDirect">;
+def XC_DW_Conv2D_PaddedIndirect : StrEnumAttrCase<"DepthwisePaddedIndirect">;
 
 def XC_Conv2D_TypeAttr : StrEnumAttr<"Conv2DType", "conv2d type enum", [
-  XC_Conv2D_ValidDirect, XC_Conv2D_ValidIndirect, XC_Conv2D_PaddedIndirect
+  XC_Conv2D_ValidDirect,
+  XC_Conv2D_ValidIndirect,
+  XC_Conv2D_PaddedIndirect,
+  XC_DW_Conv2D_ValidDirect,
+  XC_DW_Conv2D_PaddedIndirect,
 ]>;
 
 def XC_Conv2DV2Op : XC_Op<"conv2d_v2", [NoSideEffect]> {
@@ -87,6 +93,8 @@ def XC_Conv2DV2Op : XC_Op<"conv2d_v2", [NoSideEffect]> {
 
     I32Attr:$thread_count,
     I32ArrayAttr:$scratch_bytes,
+    TensorOf<[I8]>:$weights,
+    TensorOf<[I16]>:$multipliers_and_biases,
     StrArrayAttr:$abstract_kernel_params,
     StrArrayAttr:$memcpy_fn_params,
     StrArrayAttr:$aggregate_fn_params,
@@ -140,6 +148,26 @@ def XC_PadOp : XC_Op<"pad", [NoSideEffect]> {
     );
 
   let results = (outs TensorOf<[F32, I32, QI8]> : $output);
+}
+
+def XC_LoadConstantOp : XC_Op<"ld_constant", [NoSideEffect]> {
+  let summary = "Load constant op";
+
+  let description = [{Load constant op.}];
+
+  let arguments = (ins ElementsAttr : $input);
+
+  let results = (outs AnyTensor : $output);
+}
+
+def XC_LoadFlashOp : XC_Op<"ld_flash", [NoSideEffect]> {
+  let summary = "Load from flash op";
+
+  let description = [{Load from flash op.}];
+
+  let arguments = (ins I32Attr : $address, I32Attr : $size);
+
+  let results = (outs AnyTensor : $output);
 }
 
 #endif // XCORE_DIALECT
