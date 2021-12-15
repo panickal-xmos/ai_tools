@@ -295,61 +295,61 @@ def optimize_for_xcore(
 
     if operator_splitting:
         pass_mgr.register_passes(OperatorSplittingManager())   
-        
-    # canonicalization
-    pass_mgr.register_passes(
-        BasicCanonicalizationManager(remove_float_interface=remove_float_interface)
-    )
-    pass_mgr.register_passes(WordAlignmentCanonicalizationManager())
-
-    # lowering to the xcore ops
-    pass_mgr.register_passes(ActivationLoweringManager(experimental_xformer2=experimental_xformer2))
-    pass_mgr.register_passes(PoolingLoweringManager())
-    pass_mgr.register_passes(BinarizedOperatorLoweringManager())
-
-    if experimental_xformer2:
-        try:
-            pass_mgr.run_passes()
-            model.sanity_check()
-        finally:
-            if intermediates_path:
-                pass_mgr.save_intermediates(intermediates_path / "pre_xformer2")
-                intermediates_path /= "post_xformer2"
-
-        with tempfile.TemporaryDirectory(suffix=str(os.getpid())) as dirname:
-            input_path = Path(dirname) / "input.tflite"
-            model.write_flatbuffer(input_path)
-
-            output_path = Path(dirname) / "output.tflite"
-            cmd = [str(XFORMER2_PATH), str(input_path), "-o", str(output_path)]
-            p = subprocess.run(cmd, capture_output=True, check=True)
-            logging.debug(p.stdout)
-
-            model = XCOREModel.read_flatbuffer(output_path)
-
-        pass_mgr = PassManager(model, keep_intermediates=bool(intermediates_path))
-
-    pass_mgr.register_passes(
-        ParametricOperatorLoweringManager(experimental_xformer2=experimental_xformer2)
-    )
-
-    # TODO: finish these and find a manager for them:
-    pass_mgr.register_pass(passes.ReplaceAddPass())
-
-    # optimizations on xcore ops
-    pass_mgr.register_passes(
-        PaddingOptimizationManager(
-            remove_input_alignment_pad=remove_input_alignment_pad, experimental_xformer2=experimental_xformer2
+    else:    
+        # canonicalization
+        pass_mgr.register_passes(
+            BasicCanonicalizationManager(remove_float_interface=remove_float_interface)
         )
-    )
-    pass_mgr.register_passes(ParallelizationManager(num_threads=num_threads))
-    if external_memory:
-        pass_mgr.register_passes(ExternalMemoryOptimizationManager())
+        pass_mgr.register_passes(WordAlignmentCanonicalizationManager())
 
-    # finalize (cleanup, minification, renaming, etc.)
-    pass_mgr.register_passes(
-        FinalizationManager(minification=minification, cleanup=cleanup)
-    )
+        # lowering to the xcore ops
+        pass_mgr.register_passes(ActivationLoweringManager(experimental_xformer2=experimental_xformer2))
+        pass_mgr.register_passes(PoolingLoweringManager())
+        pass_mgr.register_passes(BinarizedOperatorLoweringManager())
+
+        if experimental_xformer2:
+            try:
+                pass_mgr.run_passes()
+                model.sanity_check()
+            finally:
+                if intermediates_path:
+                    pass_mgr.save_intermediates(intermediates_path / "pre_xformer2")
+                    intermediates_path /= "post_xformer2"
+
+            with tempfile.TemporaryDirectory(suffix=str(os.getpid())) as dirname:
+                input_path = Path(dirname) / "input.tflite"
+                model.write_flatbuffer(input_path)
+
+                output_path = Path(dirname) / "output.tflite"
+                cmd = [str(XFORMER2_PATH), str(input_path), "-o", str(output_path)]
+                p = subprocess.run(cmd, capture_output=True, check=True)
+                logging.debug(p.stdout)
+
+                model = XCOREModel.read_flatbuffer(output_path)
+
+            pass_mgr = PassManager(model, keep_intermediates=bool(intermediates_path))
+
+        pass_mgr.register_passes(
+            ParametricOperatorLoweringManager(experimental_xformer2=experimental_xformer2)
+        )
+
+        # TODO: finish these and find a manager for them:
+        pass_mgr.register_pass(passes.ReplaceAddPass())
+
+        # optimizations on xcore ops
+        pass_mgr.register_passes(
+            PaddingOptimizationManager(
+                remove_input_alignment_pad=remove_input_alignment_pad, experimental_xformer2=experimental_xformer2
+            )
+        )
+        pass_mgr.register_passes(ParallelizationManager(num_threads=num_threads))
+        if external_memory:
+            pass_mgr.register_passes(ExternalMemoryOptimizationManager())
+
+        # finalize (cleanup, minification, renaming, etc.)
+        pass_mgr.register_passes(
+            FinalizationManager(minification=minification, cleanup=cleanup)
+        )
 
     try:
         pass_mgr.run_passes()

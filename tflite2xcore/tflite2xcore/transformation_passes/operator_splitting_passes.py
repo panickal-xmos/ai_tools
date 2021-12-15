@@ -91,7 +91,7 @@ def insert_slice_concat(op: Operator,num_slices :int) -> Operator:
         begin_params = np.int32(begin_params)
         begin_tensor = subgraph.create_tensor(
             f"{slicer.name}/begin",
-            TensorType.INT8,
+            TensorType.INT32,
             consumers=[slicer],
             shape=begin_params.shape,
         )
@@ -104,7 +104,7 @@ def insert_slice_concat(op: Operator,num_slices :int) -> Operator:
         end_params = np.int32( end_params)
         end_tensor = subgraph.create_tensor(
             f"{slicer.name}/end",
-            TensorType.INT8,
+            TensorType.INT32,
             consumers=[slicer],
             shape=end_params.shape,
         )
@@ -114,7 +114,7 @@ def insert_slice_concat(op: Operator,num_slices :int) -> Operator:
         strides_params = np.int32([1,1,1,1])
         strides_tensor = subgraph.create_tensor(
             f"{slicer.name}/strides",
-            TensorType.INT8,
+            TensorType.INT32,
             consumers=[slicer],
             shape=strides_params.shape,
         )
@@ -390,7 +390,7 @@ def extract_padding(op: Operator,left: int=0, right: int=0) -> Operator:
     subgraph = op.subgraph
     slice_tensor_i=op.inputs[0]
     slicer_i = slice_tensor_i.producers[0]
-
+    
     op.builtin_options.update({'padding':Padding.VALID})
 
     filter_size = op.inputs[1].shape[2]
@@ -403,6 +403,7 @@ def extract_padding(op: Operator,left: int=0, right: int=0) -> Operator:
     # vertical receptive field changes will be handled by padding
     padded_tensor_shape = list(slice_tensor_i.shape)
     padded_tensor_shape[1] = padded_tensor_shape[1]+total_padding
+    
     padded_tensor = subgraph.create_tensor(
         f"padded_tensor_0",
         TensorType.INT8,
@@ -448,32 +449,32 @@ def extract_padding(op: Operator,left: int=0, right: int=0) -> Operator:
     slice_tensor_i.shape = slice_tensor_shape
 
     paddings_data = np.array(paddings_data)
+    paddings_data = np.int32(paddings_data)
     paddings = subgraph.create_tensor(
         f"paddings_0",
-        TensorType.INT8,
+        TensorType.INT32,
         shape=paddings_data.shape,
     )
-    paddings_data = np.int8(paddings_data)
     paddings.buffer.data=paddings_data
     
-    constant_value_data = [0]
+    constant_value_data =op.inputs[0].quantization.get('zero_point')
     constant_value_data = np.array(constant_value_data)
-    contant_value = subgraph.create_tensor(
+    constant_value = subgraph.create_tensor(
         f"paddings_0",
         TensorType.INT8,
         shape=constant_value_data.shape,
     )
     constant_value_data = np.int8(constant_value_data)
-    contant_value.buffer.data = constant_value_data
+    constant_value.buffer.data = constant_value_data
 
     slice_tensor_i.consumers.pop(0)
 
-    subgraph.create_operator(
+    pad_op = subgraph.create_operator(
         OperatorCode(BuiltinOpCodes.PAD),
-        inputs=[slice_tensor_i,paddings,contant_value],
+        inputs=[slice_tensor_i,paddings,constant_value],
         outputs=[padded_tensor],
     )
-
+    pad_op.inputs[2].quantization = pad_op.outputs[0].quantization
     op.inputs[0]=padded_tensor
 
     return op

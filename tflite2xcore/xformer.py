@@ -93,7 +93,7 @@ if __name__ == "__main__":
         remove_input_alignment_pad=args.remove_input_alignment_pad,
         external_memory=args.ext_mem,
         experimental_xformer2=args.experimental_xformer2,
-        only_experimental_xformer2=args.only_experimental_xformer2
+        # only_experimental_xformer2=args.only_experimental_xformer2,
         operator_splitting=args.operator_splitting
     )
 

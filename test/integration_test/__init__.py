@@ -319,6 +319,7 @@ class OperatorSplittingTestRunner(IntegrationTestRunner):
             self,
             self.get_representative_data,
             self._reference_float_converter.get_converted_model,
+            ''
         )
         self.register_evaluator(self._reference_float_evaluator)
 
@@ -332,17 +333,18 @@ class OperatorSplittingTestRunner(IntegrationTestRunner):
             self,
             self.get_representative_data,
             self._reference_quant_converter.get_converted_model,
+            ''
         )
         self.register_evaluator(self._reference_quant_evaluator)
     
         self._operator_splitting_converter = OperatorSplittingConverter(self, self.get_xcore_reference_model)
         self.register_converter(self._operator_splitting_converter)
 
-        self._operator_splitting_evaluator = XCoreEvaluator(
+        self._operator_splitting_evaluator = TFLiteQuantEvaluator(
             self, 
             self.get_xcore_evaluation_data,
             self._operator_splitting_converter.get_converted_model,
-            use_device=self._use_device,
+            ''
         )
         self.register_evaluator(self._operator_splitting_evaluator)
 
@@ -370,16 +372,14 @@ class OperatorSplittingTestRunner(IntegrationTestRunner):
         self.rerun_post_cache()
 
     def rerun_post_cache(self) -> None:
-        super().rerun_post_cache()
 
         self.outputs = self.OutputData(
-            self._xcore_evaluator.output_data,
+            self._reference_quant.output_data,
             self._operator_splitting_evaluator.output_data,
         )
         self.converted_models.update(
             {
                 "reference_quant": self._reference_quant_converter._model,
-                "xcore": self._xcore_converter._model,
                 "operator_splitting": self._operator_splitting_converter._model,
             }
         )
