@@ -488,13 +488,11 @@ class OperatorSplittingPass(QuantizedOperatorMatchingPass):
         input_tensor_producers = op.inputs[0].producers
         return (
             super().match(op)
-            # and op.inputs[0].shape[2] >= 20
-            # and len(op.outputs[0].consumers) ==1
-            and np.prod(op.outputs[0].shape) > 1200
             and input_tensor_producers # checks if prev op exits
             and input_tensor_producers[0].operator_code.code == BuiltinOpCodes.DEPTHWISE_CONV_2D
             and input_tensor_producers[0].inputs[0].producers # checks if prev op exits
             and input_tensor_producers[0].inputs[0].producers[0].operator_code.code == BuiltinOpCodes.CONV_2D 
+            and np.prod(input_tensor_producers[0].inputs[0].shape) > 614000
             and len(input_tensor_producers[0].inputs[0].producers[0].outputs) ==1
             and input_tensor_producers[0].inputs[0].producers[0].inputs[1].shape[2] == 1
             and "op_splitting" not in op.custom_options
