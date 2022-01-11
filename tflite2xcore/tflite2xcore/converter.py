@@ -40,6 +40,7 @@ class OperatorSplittingManager(PassManager):
         
         self.register_pass(passes.OperatorSplittingPass())
         self.register_pass(passes.OperatorSplittingCleanupPass())
+        self.register_pass(passes.OperatorSplittingReshapeOptionsPass())
 
 class BasicCanonicalizationManager(PassManager):
     def __init__(

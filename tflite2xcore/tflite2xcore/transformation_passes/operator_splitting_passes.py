@@ -71,11 +71,22 @@ def insert_slice_concat(op: Operator,num_slices :int) -> Operator:
 
         concat_op.inputs.append(slice_tensor)
 
+        #   op_params.begin_mask = op_context->params->begin_mask;
+        #   op_params.ellipsis_mask = 0;
+        #   op_params.end_mask = op_context->params->end_mask;
+        #   op_params.new_axis_mask = 0;
+        #   op_params.shrink_axis_mask = op_context->params->shrink_axis_mask;
+#         tf.strided_slice(
+#     input_, begin, end, strides=None, begin_mask=0, end_mask=0, ellipsis_mask=0,
+#     new_axis_mask=0, shrink_axis_mask=0, var=None, name=None
+# )
+  
         # create and connect slice op
         slicer = subgraph.create_operator(
             OperatorCode(BuiltinOpCodes.STRIDED_SLICE),
             inputs=[op.outputs[0]],
             outputs=[slice_tensor],
+            builtin_options= {"begin_mask":0,"end_mask":0,  "shrink_axis_mask":0,},
         )
 
         # strided slice input param tensors
@@ -471,10 +482,10 @@ def extract_padding(op: Operator,left: int=0, right: int=0) -> Operator:
 
     pad_op = subgraph.create_operator(
         OperatorCode(BuiltinOpCodes.PAD),
-        inputs=[slice_tensor_i,paddings,constant_value],
+        inputs=[slice_tensor_i,paddings],#,constant_value],
         outputs=[padded_tensor],
     )
-    pad_op.inputs[2].quantization = pad_op.outputs[0].quantization
+    # pad_op.inputs[2].quantization = pad_op.outputs[0].quantization
     op.inputs[0]=padded_tensor
 
     return op
@@ -518,4 +529,17 @@ class OperatorSplittingCleanupPass(OperatorMatchingPass):
 
     def mutate(self, op: Operator) -> bool:
         op.custom_options.pop('op_splitting')
+        return op
+
+class OperatorSplittingReshapeOptionsPass(OperatorMatchingPass):
+    def match(self, op: Operator) -> bool:
+        return (
+            super().match(op)
+            and  op.operator_code.code == BuiltinOpCodes.RESHAPE
+            and  not op.builtin_options
+        )
+
+    def mutate(self, op: Operator) -> bool:
+        op.builtin_options.update({"shape":np.array(op.outputs[0].shape)})
+
         return op
