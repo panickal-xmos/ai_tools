@@ -64,3 +64,56 @@ class ReverseDepthFirstPlanner(ExecutionPlanner):
 
         # return ops in reverse order
         return list(reversed(list(reverse_op_order.keys())))
+
+class TensorsSizeMinimizerPlanner(ExecutionPlanner):
+    def make_plan(self) -> Sequence[xir.Operator]:
+        # rely on dict's insertion order guarantee (CPython 3.6+)
+        op_order: Dict[xir.Operator, None] = {}
+
+        # initialize the op stack with a sentinel that we'll remove later
+        sentinel_op = self._graph.create_operator(
+            xir.OperatorCode(xir.XCOREOpCodes.DUMMY),
+            outputs=self._graph.inputs,
+        )
+        sentinel_op.name = "SENTINEL"
+        op_stack = [sentinel_op]
+
+        outputs_size=0
+        for output in sentinel_op.outputs:
+            outputs_size += output.size
+        tensors_size_increase: Dict[xir.Operator, int] = {sentinel_op: outputs_size-0}
+        not_ready = []
+        while tensors_size_increase:
+            ready_ops = tensors_size_increase
+            for op in not_ready:
+                ready_ops.pop(op)
+            #find op that causes the smallest increase in tensor arena
+            op = min(ready_ops, key=ready_ops.get)
+
+
+            op_order[op] = None
+            tensors_size_increase.pop(op)
+            not_ready = set([])
+            for output in op.outputs:
+                for next_op in output.consumers:
+                    outputs_size=0
+                    inputs_size =0
+                    for output in next_op.outputs:
+                        outputs_size += output.size 
+                    for in_tensor in next_op.inputs:
+                        inputs_size += in_tensor.size 
+                    tensors_size_increase[next_op]= outputs_size-inputs_size
+
+            #check if op input tensors are ready
+            for next_op in tensors_size_increase:
+                for in_tensor in next_op.inputs:
+                    for producers in in_tensor.producers:
+                        if producers not in op_order:
+                            not_ready.add(next_op)
+
+        # remove sentinel op
+        self._graph.remove_operator(sentinel_op)
+        del op_order[sentinel_op]
+
+        # return ops 
+        return list(op_order.keys())
