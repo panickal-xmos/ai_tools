@@ -272,6 +272,173 @@ def move_slice_above_first_op(op: Operator,num_slices :int) -> Operator:
     op.outputs[0].consumers = op.outputs[0].consumers[:1]
     return op
 
+def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
+    subgraph = op.subgraph
+    
+    # shorter names also preserves reference
+    op_input_shape = op.inputs[0].shape
+    slicer_0=op.outputs[0].consumers[0]
+    slice_tensor_0=slicer_0.outputs[0]
+    concat_op=slice_tensor_0.consumers[0]
+    block_input = op.inputs[0]
+    residual_connection = op.inputs[1]
+    
+    # changes strided slice's input tensor
+    slicer_0.inputs[0] = op.inputs[0]
+    op.inputs[0].consumers[0]=slicer_0
+
+    # changes op's inputs
+    op.inputs[0]=slice_tensor_0
+    slice_tensor_0.consumers[0]=op 
+
+    op.outputs[0].shape = slice_tensor_0.shape
+    concat_op.inputs[0]=op.outputs[0]
+    op.outputs[0].consumers[0]=concat_op
+    slice_tensor_0.quantization=slicer_0.inputs[0].quantization
+
+    slice_tensor_0_shape = list(slice_tensor_0.shape)
+    slice_tensor_0_shape[1] = op_input_shape[1]
+    slice_tensor_0_shape[3] = block_input.shape[3]
+    slice_tensor_0.shape = slice_tensor_0_shape
+
+    #int32 so step 4
+    begin_params = list(slicer_0.inputs[1].buffer.data)[::4]
+    end_params = list(op_input_shape)
+    end_params[3] = block_input.shape[3]
+    end_params = np.int32(end_params)
+    slicer_0.inputs[2].buffer.data = end_params
+    
+    # adds slicer to residual connection
+    slice_tensor_2 = subgraph.create_tensor(
+            f"slice_tensor_{2}",
+            TensorType.INT8,
+            consumers=[op],
+            shape=slice_tensor_0_shape,
+            quantization=op.outputs[0].quantization,
+        ) 
+
+    op.inputs[1]=slice_tensor_2
+
+    # create and connect slice op
+    slicer_2 = subgraph.create_operator(
+            OperatorCode(BuiltinOpCodes.STRIDED_SLICE),
+            inputs=[residual_connection],
+            outputs=[slice_tensor_2],
+            builtin_options= {"begin_mask":0,"end_mask":0,  "shrink_axis_mask":0,},
+        )
+    
+    #begin params  
+    slicer_2.inputs.append(slicer_0.inputs[1])
+    slicer_2.inputs[1].consumers.append(slicer_2)
+    #end params
+    slicer_2.inputs.append(slicer_0.inputs[2])
+    slicer_2.inputs[2].consumers.append(slicer_2)
+    #strides params
+    slicer_2.inputs.append(slicer_0.inputs[3])
+    slicer_2.inputs[3].consumers.append(slicer_2)
+
+    residual_connection.consumers.remove(op)
+    residual_connection.consumers.append(slicer_2)
+    
+    for i in range(1,num_slices):
+        # shorter names
+        slicer_i=op.outputs[0].consumers[i]
+        slice_tensor_i=slicer_i.outputs[0]
+        concat_op=slice_tensor_i.consumers[0]
+            
+        new_op_output = subgraph.create_tensor(
+            f"{op.name}/output{i}",
+            TensorType.INT8,
+            consumers=[concat_op],
+            shape=slice_tensor_i.shape,
+            quantization=op.outputs[0].quantization,
+        ) 
+
+        # resize expands tensors to the left
+        # but left most tensor cannnot expand to the left
+        # so redistribute left most tensor size change
+        # offset accumulates across slices
+        if i >= num_slices:
+            new_op_output_shape = list(new_op_output.shape)
+            new_op_output_shape[2] = new_op_output_shape[2]+1
+            new_op_output.shape = new_op_output_shape
+
+        new_slice_tensor_shape = list(new_op_output.shape)
+        new_slice_tensor_shape[1] = op_input_shape[1]
+        new_slice_tensor_shape[2] = new_slice_tensor_shape[2]
+        new_slice_tensor_shape[3] = block_input.shape[3]
+        slice_tensor_i.shape = new_slice_tensor_shape
+
+        begin_param = end_params[2]
+
+        begin_params = [0,0,begin_param,0]
+        slicer_i.inputs[1].buffer.data = np.int32(begin_params)
+
+        end_params = list(slicer_i.inputs[2].buffer.data)[::4]
+        end_params[1] = op_input_shape[1]
+        end_params[2] = begin_param+new_slice_tensor_shape[2]
+        end_params[3] = block_input.shape[3]
+        end_params = np.int32(end_params)
+        slicer_i.inputs[2].buffer.data = end_params
+
+        # changes slicer's input tensor
+        slicer_i.inputs[0] = block_input
+        block_input.consumers.append(slicer_i)
+        slice_tensor_i.quantization=slice_tensor_0.quantization
+
+        new_op_input_1 = subgraph.create_tensor(
+            f"{op.name}/input_1",
+            op.inputs[1].type,
+            op.inputs[1].shape,
+            quantization=deepcopy(op.inputs[1].quantization),
+        )
+        new_op_input_1.buffer.data= op.inputs[1].buffer.data
+        new_op = subgraph.create_operator(
+            OperatorCode(op.operator_code.code),
+            inputs=[slice_tensor_i],
+            outputs=[new_op_output],
+        ) 
+        new_op.add_custom_options(op_splitting=True)
+        new_op.builtin_options=op.builtin_options
+
+        concat_op.inputs[i]=new_op_output
+        slice_tensor_i.consumers.pop(0)
+        new_op_output.producers[0]=new_op
+
+        # adds slicer to residual connection
+        slice_tensor_iplus = subgraph.create_tensor(
+                f"slice_tensor_{i+2}",
+                TensorType.INT8,
+                consumers=[new_op],
+                shape=slice_tensor_0_shape,
+                quantization=op.outputs[0].quantization,
+            ) 
+
+        new_op.inputs.append(slice_tensor_iplus)
+
+        # create and connect slice op
+        slicer_iplus = subgraph.create_operator(
+                OperatorCode(BuiltinOpCodes.STRIDED_SLICE),
+                inputs=[residual_connection],
+                outputs=[slice_tensor_iplus],
+                builtin_options= {"begin_mask":0,"end_mask":0,  "shrink_axis_mask":0,},
+            )
+        
+        #begin params  
+        slicer_iplus.inputs.append(slicer_i.inputs[1])
+        slicer_iplus.inputs[1].consumers.append(slicer_iplus)
+        #end params
+        slicer_iplus.inputs.append(slicer_i.inputs[2])
+        slicer_iplus.inputs[2].consumers.append(slicer_iplus)
+        #strides params
+        slicer_iplus.inputs.append(slicer_i.inputs[3])
+        slicer_iplus.inputs[3].consumers.append(slicer_iplus)
+
+        residual_connection.consumers.append(slicer_iplus)
+
+    op.outputs[0].consumers = op.outputs[0].consumers[:1]
+    return op
+
 def move_slice_above_op(op: Operator,num_slices :int) -> Operator:
     subgraph = op.subgraph
     
@@ -503,22 +670,74 @@ class OperatorSplittingPass(QuantizedOperatorMatchingPass):
             and input_tensor_producers[0].operator_code.code == BuiltinOpCodes.DEPTHWISE_CONV_2D
             and input_tensor_producers[0].inputs[0].producers # checks if prev op exits
             and input_tensor_producers[0].inputs[0].producers[0].operator_code.code == BuiltinOpCodes.CONV_2D 
-            and np.prod(input_tensor_producers[0].inputs[0].shape) > 614000
+            and np.prod(op.inputs[0].shape) in [(40*40*96)]
+            # and np.prod(input_tensor_producers[0].inputs[0].shape) in [614400,(40*40*96)]
             and len(input_tensor_producers[0].inputs[0].producers[0].outputs) ==1
             and input_tensor_producers[0].inputs[0].producers[0].inputs[1].shape[2] == 1
             and "op_splitting" not in op.custom_options
-        )
-     
+        ) 
+
     def mutate(self, op: Operator) -> Operator:
         op.add_custom_options(op_splitting=True)
 
-        num_slices = 4
+        if op.inputs[0].producers[0].inputs[0].shape[2] > 40: 
+            num_slices = 6
+        else:
+            num_slices = 2
         preceding_op = op.inputs[0].producers[0]
         double_preceding_op = preceding_op.inputs[0].producers[0]
         op = insert_slice_concat(op,num_slices)
         op = move_slice_above_first_op(op,num_slices)
         op = move_slice_above_op(preceding_op,num_slices)
         op = move_slice_above_op(double_preceding_op,num_slices)
+
+class AddOperatorSplittingPass(QuantizedOperatorMatchingPass):
+    @property
+    def matching_opcode(self):
+        return BuiltinOpCodes.ADD
+
+    def match(self, op: Operator) -> bool:
+        return (
+            super().match(op)
+            and "op_splitting" not in op.custom_options
+        ) 
+
+    def mutate(self, op: Operator) -> Operator:
+        op.add_custom_options(op_splitting=True)
+
+        num_slices = 2
+        
+        op = insert_slice_concat(op,num_slices)
+        op = move_slice_above_add(op,num_slices)
+        
+
+class TempOperatorSplittingPass(QuantizedOperatorMatchingPass):
+    @property
+    def matching_opcode(self):
+        return BuiltinOpCodes.CONV_2D
+
+    def match(self, op: Operator) -> bool:
+        input_tensor_producers = op.inputs[0].producers
+        return (
+            super().match(op)
+            and input_tensor_producers # checks if prev op exits
+            and input_tensor_producers[0].operator_code.code == BuiltinOpCodes.DEPTHWISE_CONV_2D
+            and input_tensor_producers[0].inputs[0].producers # checks if prev op exits
+            and input_tensor_producers[0].inputs[0].producers[0].operator_code.code == BuiltinOpCodes.CONV_2D 
+            and np.prod(input_tensor_producers[0].inputs[0].shape) in [(80*80*16)]
+            # and len(input_tensor_producers[0].inputs[0].producers[0].outputs) ==1
+            # and input_tensor_producers[0].inputs[0].producers[0].inputs[1].shape[2] == 1
+            and "op_splitting" not in op.custom_options
+        ) 
+
+    def mutate(self, op: Operator) -> Operator:
+        op.add_custom_options(op_splitting=True)
+
+        num_slices = 2
+        preceding_op = op.inputs[0].producers[0]
+        op = insert_slice_concat(op,num_slices)
+        op = move_slice_above_first_op(op,num_slices)
+        op = move_slice_above_op(preceding_op,num_slices)
 
 class OperatorSplittingCleanupPass(OperatorMatchingPass):
     def match(self, op: Operator) -> bool:

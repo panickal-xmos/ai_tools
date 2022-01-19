@@ -120,6 +120,8 @@ from .add_passes import ReplaceAddPass
 
 from .operator_splitting_passes import (
     OperatorSplittingPass,
+    TempOperatorSplittingPass,
+    AddOperatorSplittingPass,
     OperatorSplittingCleanupPass,
     OperatorSplittingReshapeOptionsPass,
 )

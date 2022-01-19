@@ -38,7 +38,9 @@ class OperatorSplittingManager(PassManager):
     ) -> None:
         super().__init__(model, **kwargs)
         
-        self.register_pass(passes.OperatorSplittingPass())
+        # self.register_pass(passes.OperatorSplittingPass())
+        # self.register_pass(passes.TempOperatorSplittingPass())
+        self.register_pass(passes.AddOperatorSplittingPass())
         self.register_pass(passes.OperatorSplittingCleanupPass())
         self.register_pass(passes.OperatorSplittingReshapeOptionsPass())
 
