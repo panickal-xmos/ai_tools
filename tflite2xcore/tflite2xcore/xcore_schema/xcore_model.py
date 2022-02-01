@@ -45,7 +45,7 @@ from .flexbuffers import FlexbufferBuilder, FlexbufferParser
 from .builtin_options import BuiltinOptions
 
 from tflite2xcore.utils import asserting_cast
-from tflite2xcore.execution_planning import TensorsSizeMinimizerPlanner #ReverseDepthFirstPlanner
+from tflite2xcore.execution_planning import DepthVsWidthPlanner,RandomSequencePlanner,TensorsSizeMinimizerPlanner,ReverseDepthFirstPlanner
 
 _R = TypeVar("_R", bound="XCOREModel")
 
@@ -405,7 +405,9 @@ class XCOREModel(_IRObject):
 
             # set operators
             subgraphT.operators = []
-            planner = TensorsSizeMinimizerPlanner(subgraph)
+            planner = DepthVsWidthPlanner(subgraph)
+            # planner = RandomSequencePlanner(subgraph)
+            # planner = TensorsSizeMinimizerPlanner(subgraph)
             # planner = ReverseDepthFirstPlanner(subgraph)
             for operator in planner.make_plan():
                 operatorT = schema.OperatorT()  # type: ignore

@@ -304,7 +304,7 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
     #int32 so step 4
     begin_params = list(slicer_0.inputs[1].buffer.data)[::4]
     end_params = list(op_input_shape)
-    end_params[3] = block_input.shape[3]
+    end_params[2] = end_params[2]//num_slices
     end_params = np.int32(end_params)
     slicer_0.inputs[2].buffer.data = end_params
     
@@ -314,7 +314,7 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
             TensorType.INT8,
             consumers=[op],
             shape=slice_tensor_0_shape,
-            quantization=op.outputs[0].quantization,
+            quantization=residual_connection.quantization,
         ) 
 
     op.inputs[1]=slice_tensor_2
@@ -328,14 +328,32 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
         )
     
     #begin params  
-    slicer_2.inputs.append(slicer_0.inputs[1])
-    slicer_2.inputs[1].consumers.append(slicer_2)
+    begin_tensor = subgraph.create_tensor(
+            f"{slicer_2.name}/begin",
+            TensorType.INT32,
+            consumers=[slicer_2],
+            shape=slicer_0.inputs[1].shape,
+        )
+    slicer_2.inputs.append(begin_tensor)
+    slicer_2.inputs[1].buffer.data = slicer_0.inputs[1].buffer.data
     #end params
-    slicer_2.inputs.append(slicer_0.inputs[2])
-    slicer_2.inputs[2].consumers.append(slicer_2)
+    end_tensor = subgraph.create_tensor(
+            f"{slicer_2.name}/end",
+            TensorType.INT32,
+            consumers=[slicer_2],
+            shape=slicer_0.inputs[2].shape,
+        )
+    slicer_2.inputs.append(end_tensor)
+    slicer_2.inputs[2].buffer.data = slicer_0.inputs[2].buffer.data
     #strides params
-    slicer_2.inputs.append(slicer_0.inputs[3])
-    slicer_2.inputs[3].consumers.append(slicer_2)
+    strides_tensor = subgraph.create_tensor(
+            f"{slicer_2.name}/strides",
+            TensorType.INT32,
+            consumers=[slicer_2],
+            shape=slicer_0.inputs[3].shape,
+        )
+    slicer_2.inputs.append(strides_tensor)
+    slicer_2.inputs[3].buffer.data = slicer_0.inputs[3].buffer.data
 
     residual_connection.consumers.remove(op)
     residual_connection.consumers.append(slicer_2)
@@ -375,9 +393,6 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
         slicer_i.inputs[1].buffer.data = np.int32(begin_params)
 
         end_params = list(slicer_i.inputs[2].buffer.data)[::4]
-        end_params[1] = op_input_shape[1]
-        end_params[2] = begin_param+new_slice_tensor_shape[2]
-        end_params[3] = block_input.shape[3]
         end_params = np.int32(end_params)
         slicer_i.inputs[2].buffer.data = end_params
 
@@ -411,7 +426,7 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
                 TensorType.INT8,
                 consumers=[new_op],
                 shape=slice_tensor_0_shape,
-                quantization=op.outputs[0].quantization,
+                quantization=residual_connection.quantization,
             ) 
 
         new_op.inputs.append(slice_tensor_iplus)
@@ -425,14 +440,32 @@ def move_slice_above_add(op: Operator,num_slices :int) -> Operator:
             )
         
         #begin params  
-        slicer_iplus.inputs.append(slicer_i.inputs[1])
-        slicer_iplus.inputs[1].consumers.append(slicer_iplus)
+        begin_tensor = subgraph.create_tensor(
+                f"{slicer_iplus.name}/begin",
+                TensorType.INT32,
+                consumers=[slicer_iplus],
+                shape=slicer_0.inputs[1].shape,
+            )
+        slicer_iplus.inputs.append(begin_tensor)
+        slicer_iplus.inputs[1].buffer.data = slicer_i.inputs[1].buffer.data
         #end params
-        slicer_iplus.inputs.append(slicer_i.inputs[2])
-        slicer_iplus.inputs[2].consumers.append(slicer_iplus)
+        end_tensor = subgraph.create_tensor(
+                f"{slicer_iplus.name}/end",
+                TensorType.INT32,
+                consumers=[slicer_iplus],
+                shape=slicer_0.inputs[2].shape,
+            )
+        slicer_iplus.inputs.append(end_tensor)
+        slicer_iplus.inputs[2].buffer.data = slicer_i.inputs[2].buffer.data
         #strides params
-        slicer_iplus.inputs.append(slicer_i.inputs[3])
-        slicer_iplus.inputs[3].consumers.append(slicer_iplus)
+        strides_tensor = subgraph.create_tensor(
+                f"{slicer_iplus.name}/strides",
+                TensorType.INT32,
+                consumers=[slicer_iplus],
+                shape=slicer_0.inputs[3].shape,
+            )
+        slicer_iplus.inputs.append(strides_tensor)
+        slicer_iplus.inputs[3].buffer.data = slicer_i.inputs[3].buffer.data
 
         residual_connection.consumers.append(slicer_iplus)
 
@@ -699,6 +732,7 @@ class AddOperatorSplittingPass(QuantizedOperatorMatchingPass):
     def match(self, op: Operator) -> bool:
         return (
             super().match(op)
+            and np.prod(op.outputs[0].shape) == (80*80*16)
             and "op_splitting" not in op.custom_options
         ) 
 
@@ -706,9 +740,13 @@ class AddOperatorSplittingPass(QuantizedOperatorMatchingPass):
         op.add_custom_options(op_splitting=True)
 
         num_slices = 2
+        preceding_op = op.inputs[0].producers[0]
+        double_preceding_op = preceding_op.inputs[0].producers[0]
         
         op = insert_slice_concat(op,num_slices)
         op = move_slice_above_add(op,num_slices)
+        op = move_slice_above_op(preceding_op,num_slices)
+        op = move_slice_above_op(double_preceding_op,num_slices)
         
 
 class TempOperatorSplittingPass(QuantizedOperatorMatchingPass):
