@@ -739,7 +739,7 @@ class AddOperatorSplittingPass(QuantizedOperatorMatchingPass):
     def mutate(self, op: Operator) -> Operator:
         op.add_custom_options(op_splitting=True)
 
-        num_slices = 2
+        num_slices = 8
         preceding_op = op.inputs[0].producers[0]
         double_preceding_op = preceding_op.inputs[0].producers[0]
         
